@@ -42,6 +42,11 @@ func init() {
 	go deployWorker()
 }
 
+func renderCaddy404(w http.ResponseWriter) {
+	w.Header().Set("Server", "Caddy")
+	w.WriteHeader(http.StatusNotFound)
+}
+
 func updateAllowedIPs() {
 	resp, err := http.Get("https://api.github.com/meta")
 	if err != nil {
@@ -96,20 +101,6 @@ func isAllowed(ipStr string) bool {
 }
 
 func handleWebhook(w http.ResponseWriter, r *http.Request) {
-	clientIP := r.Header.Get("X-Forwarded-For")
-	if clientIP != "" {
-		clientIP = strings.Split(clientIP, ",")[0]
-		clientIP = strings.TrimSpace(clientIP)
-	} else {
-		clientIP, _, _ = net.SplitHostPort(r.RemoteAddr)
-	}
-
-	if !isAllowed(clientIP) {
-		log.Printf("[WARN] Blocked request from unauthorized IP: %s", clientIP)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -166,8 +157,33 @@ func deployWorker() {
 	}
 }
 
+func getClientIP(r *http.Request) string {
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP != "" {
+		return strings.TrimSpace(strings.Split(clientIP, ",")[0])
+	}
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	return ip
+}
+
 func main() {
 	log.Printf("[INFO] Server is running in %v", port)
-	http.HandleFunc("/_github/deploy", handleWebhook)
-	log.Fatal(http.ListenAndServe(port, nil))
+
+	mainHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_github/deploy" {
+			renderCaddy404(w)
+			return
+		}
+
+		clientIP := getClientIP(r)
+		if !isAllowed(clientIP) {
+			log.Printf("[WARN] Blocked request from unauthorized IP: %s", clientIP)
+			renderCaddy404(w)
+			return
+		}
+
+		handleWebhook(w, r)
+	})
+
+	log.Fatal(http.ListenAndServe(port, mainHandler))
 }
