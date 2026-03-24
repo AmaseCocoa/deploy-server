@@ -106,7 +106,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if !isAllowed(clientIP) {
 		log.Printf("[WARN] Blocked request from unauthorized IP: %s", clientIP)
-		http.Error(w, "404 page not found", http.StatusNotFound)
+		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
