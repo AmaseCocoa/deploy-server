@@ -29,6 +29,10 @@ var (
 	ipMutex     sync.RWMutex
 )
 
+type githubPayload struct {
+	Ref string `json:"ref"`
+}
+
 func getEnv(key, defaultValue string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -106,6 +110,8 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventType := r.Header.Get("X-GitHub-Event")
+	
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Read error", http.StatusBadRequest)
@@ -116,6 +122,35 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 	if !verifySignature(payload, r.Header.Get("X-Hub-Signature-256")) {
 		log.Println("[WARN] Invalid signature")
 		http.Error(w, "Invalid signature", http.StatusForbidden)
+		return
+	}
+
+	if eventType == "ping" {
+		log.Println("[INFO] Ping received, responding with pong")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "pong")
+		return
+	}
+
+	if eventType != "push" {
+		log.Printf("[INFO] Event %s ignored", eventType)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Event %s is not handled", eventType)
+		return
+	}
+
+	var p githubPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		log.Printf("[ERROR] JSON unmarshal failed: %v", err)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	targetBranch := "refs/heads/prod"
+	if p.Ref != targetBranch {
+		log.Printf("[INFO] Skipped: push to %s (target is %s)", p.Ref, targetBranch)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Skipped: branch %s is not target", p.Ref)
 		return
 	}
 
