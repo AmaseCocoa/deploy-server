@@ -146,7 +146,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetBranch := "refs/heads/prod"
+	targetBranch := getEnv("DEPLOY_BRANCH", "refs/heads/prod")
 	if p.Ref != targetBranch {
 		log.Printf("[INFO] Skipped: push to %s (target is %s)", p.Ref, targetBranch)
 		w.WriteHeader(http.StatusOK)
