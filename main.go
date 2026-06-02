@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,7 @@ var (
 	webhookSecret = os.Getenv("WEBHOOK_SECRET")
 	deployScript  = os.Getenv("DEPLOY_SCRIPT")
 	port          = getEnv("PORT", ":8080")
+	dnsServer 	  = getEnv("DEPL_DNS", "1.1.1.1:53")
 )
 
 var (
@@ -28,6 +30,27 @@ var (
 	allowedIPs  []*net.IPNet
 	ipMutex     sync.RWMutex
 )
+
+var githubClient = &http.Client{
+	Timeout: 15 * time.Second,
+	Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dialer := &net.Dialer{Timeout: 5 * time.Second}
+			resolver := &net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					return dialer.DialContext(ctx, "udp", dnsServer)
+				},
+			}
+			host, port, _ := net.SplitHostPort(addr)
+			ips, err := resolver.LookupHost(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips, port))
+		},
+	},
+}
 
 type githubPayload struct {
 	Ref string `json:"ref"`
@@ -41,7 +64,6 @@ func getEnv(key, defaultValue string) string {
 }
 
 func init() {
-	updateAllowedIPs()
 	go ipUpdater()
 	go deployWorker()
 }
@@ -52,7 +74,7 @@ func renderCaddy404(w http.ResponseWriter) {
 }
 
 func updateAllowedIPs() {
-	resp, err := http.Get("https://api.github.com/meta")
+	resp, err := githubClient.Get("https://api.github.com/meta")
 	if err != nil {
 		log.Printf("[ERROR] Failed to fetch GitHub meta: %v", err)
 		return
@@ -82,6 +104,8 @@ func updateAllowedIPs() {
 }
 
 func ipUpdater() {
+	updateAllowedIPs()
+
 	ticker := time.NewTicker(1 * time.Hour)
 	for range ticker.C {
 		updateAllowedIPs()
@@ -96,6 +120,7 @@ func isAllowed(ipStr string) bool {
 
 	ipMutex.RLock()
 	defer ipMutex.RUnlock()
+	
 	for _, ipNet := range allowedIPs {
 		if ipNet.Contains(ip) {
 			return true
