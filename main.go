@@ -52,7 +52,7 @@ var githubClient = &http.Client{
 			}
 			
 			targetAddr := net.JoinHostPort(ips[0], port)
-			return dialer.DialContext(ctx, network, net.JoinHostPort(targetAddr, port))
+			return dialer.DialContext(ctx, network, targetAddr)
 		},
 	},
 }
