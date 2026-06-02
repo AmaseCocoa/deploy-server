@@ -47,7 +47,12 @@ var githubClient = &http.Client{
 			if err != nil {
 				return nil, err
 			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips, port))
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("no IP addresses found for host: %s", host)
+			}
+			
+			targetAddr := net.JoinHostPort(ips[0], port)
+			return dialer.DialContext(ctx, network, net.JoinHostPort(targetAddr, port))
 		},
 	},
 }
